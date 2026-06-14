@@ -2,431 +2,20 @@ import * as THREE from 'three';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 import { CSS2DRenderer, CSS2DObject } from 'three/addons/renderers/CSS2DRenderer.js';
 
-const AU_KM = 149597870.7; // kilometers per astronomical unit
-// Browsers block local image loads from file:// pages (CORS). Use a local HTTP server for textures.
+import { SIM_RATE, SUN_RADIUS } from './src/constants.js';
+import { planetsData } from './src/data/planets.js';
+import { moonsData, MOON_ORBIT_CONFIG, moonColors } from './src/data/moons.js';
+import { textureFiles } from './src/data/textures.js';
+import { formatPlanetDistanceLabel } from './src/format.js';
+import { isPointerClick, pointerToNormalizedDeviceCoords } from './src/input.js';
+import { buildMoonState, moonVisualRadius } from './src/moons.js';
+import { getMoonOffset, getPlanetPosition, orbitalToScene } from './src/orbital.js';
+import { makeGlowTexture, makeRingTexture, makeSunTexture } from './src/textures.js';
+import { buildTrackables, findTrackableByName, getDesiredCameraDistance } from './src/trackables.js';
+import { createInfoPanelUpdater } from './src/ui/info-panel.js';
+
 const CAN_LOAD_LOCAL_TEXTURES = window.location.protocol !== 'file:';
 
-// ---------------------------------------------------------------------------
-// Constants
-// ---------------------------------------------------------------------------
-const DISTANCE_SCALE = 30;        // 1 AU = 30 scene units
-const SIM_RATE = 10;              // at timeSpeed = 1, 1 real second = 10 sim days
-const SUN_RADIUS = 5.0;
-const DEG = Math.PI / 180;
-
-// Orbital elements at epoch J2000.0 (angles in degrees, a in AU, period in days)
-const planetsData = [
-  { name: 'Mercury', a: 0.387, e: 0.2056, i: 7.0,  Ω: 48.3, ω: 29.1, M0: 174.8, period: 87.969, color: 0xaaaaaa, radius: 0.2 },
-  { name: 'Venus',   a: 0.723, e: 0.0068, i: 3.4,  Ω: 76.7, ω: 54.9, M0: 50.4,  period: 224.70, color: 0xffcc88, radius: 0.5 },
-  { name: 'Earth',   a: 1.000, e: 0.0167, i: 0.0,  Ω: 0.0,  ω: 102.9,M0: 358.6, period: 365.25, color: 0x2266cc, radius: 0.5 },
-  { name: 'Mars',    a: 1.524, e: 0.0934, i: 1.85, Ω: 49.6, ω: 286.5,M0: 19.4,  period: 687.0,  color: 0xcc4422, radius: 0.3 },
-  { name: 'Jupiter', a: 5.203, e: 0.0484, i: 1.3,  Ω: 100.5,ω: 275.1,M0: 20.0,  period: 4333,   color: 0xddbb88, radius: 2.0 },
-  { name: 'Saturn',  a: 9.537, e: 0.0539, i: 2.49, Ω: 113.7,ω: 336.0,M0: 317.0, period: 10759,  color: 0xeeddaa, radius: 1.8 },
-  { name: 'Uranus',  a: 19.19, e: 0.0473, i: 0.77, Ω: 74.0, ω: 96.5, M0: 142.0, period: 30687,  color: 0x66ccff, radius: 1.2 },
-  { name: 'Neptune', a: 30.07, e: 0.0086, i: 1.77, Ω: 131.8,ω: 265.6,M0: 260.0, period: 60190,  color: 0x3355aa, radius: 1.2 },
-];
-
-// Tier 2 moon set: major + inner moons of gas giants (~54 total)
-const moonsData = {
-  Earth: [
-    { name: 'Moon', diameter: 3474, period: 27.3 },
-  ],
-  Mars: [
-    { name: 'Phobos', diameter: 22.4, period: 0.32 },
-    { name: 'Deimos', diameter: 12.4, period: 1.26 },
-  ],
-  Jupiter: [
-    { name: 'Io', diameter: 3643, period: 1.77 },
-    { name: 'Europa', diameter: 3122, period: 3.55 },
-    { name: 'Ganymede', diameter: 5268, period: 7.15 },
-    { name: 'Callisto', diameter: 4821, period: 16.69 },
-    { name: 'Metis', diameter: 43, period: 0.29 },
-    { name: 'Adrastea', diameter: 16, period: 0.30 },
-    { name: 'Amalthea', diameter: 167, period: 0.50 },
-    { name: 'Thebe', diameter: 99, period: 0.67 },
-    { name: 'Himalia', diameter: 170, period: 250.6 },
-  ],
-  Saturn: [
-    { name: 'Titan', diameter: 5149, period: 15.95 },
-    { name: 'Rhea', diameter: 1528, period: 4.52 },
-    { name: 'Iapetus', diameter: 1470, period: 79.33 },
-    { name: 'Dione', diameter: 1123, period: 2.74 },
-    { name: 'Tethys', diameter: 1066, period: 1.89 },
-    { name: 'Enceladus', diameter: 504, period: 1.37 },
-    { name: 'Mimas', diameter: 396, period: 0.94 },
-    { name: 'Janus', diameter: 179, period: 0.69 },
-    { name: 'Epimetheus', diameter: 116, period: 0.69 },
-    { name: 'Prometheus', diameter: 86, period: 0.61 },
-    { name: 'Pandora', diameter: 81, period: 0.63 },
-    { name: 'Atlas', diameter: 30, period: 0.60 },
-    { name: 'Pan', diameter: 28, period: 0.58 },
-    { name: 'Daphnis', diameter: 8, period: 0.59 },
-    { name: 'Phoebe', diameter: 213, period: 550.3, retrograde: true },
-  ],
-  Uranus: [
-    { name: 'Titania', diameter: 1578, period: 8.71 },
-    { name: 'Oberon', diameter: 1523, period: 13.46 },
-    { name: 'Umbriel', diameter: 1169, period: 4.14 },
-    { name: 'Ariel', diameter: 1158, period: 2.52 },
-    { name: 'Miranda', diameter: 472, period: 1.41 },
-    { name: 'Puck', diameter: 162, period: 0.76 },
-    { name: 'Portia', diameter: 135, period: 0.51 },
-    { name: 'Juliet', diameter: 106, period: 0.49 },
-    { name: 'Belinda', diameter: 90, period: 0.62 },
-    { name: 'Cressida', diameter: 80, period: 0.46 },
-    { name: 'Rosalind', diameter: 72, period: 0.56 },
-    { name: 'Desdemona', diameter: 64, period: 0.47 },
-    { name: 'Bianca', diameter: 51, period: 0.43 },
-    { name: 'Cordelia', diameter: 40, period: 0.34 },
-    { name: 'Ophelia', diameter: 43, period: 0.38 },
-    { name: 'Perdita', diameter: 30, period: 0.64 },
-    { name: 'Mab', diameter: 25, period: 0.92 },
-    { name: 'Cupid', diameter: 18, period: 0.62 },
-  ],
-  Neptune: [
-    { name: 'Triton', diameter: 2707, period: 5.88, retrograde: true },
-    { name: 'Proteus', diameter: 420, period: 1.12 },
-    { name: 'Nereid', diameter: 340, period: 360.1 },
-    { name: 'Larissa', diameter: 194, period: 0.55 },
-    { name: 'Galatea', diameter: 176, period: 0.43 },
-    { name: 'Despina', diameter: 150, period: 0.33 },
-    { name: 'Thalassa', diameter: 82, period: 0.31 },
-    { name: 'Naiad', diameter: 58, period: 0.29 },
-    { name: 'Hippocamp', diameter: 35, period: 0.95 },
-  ],
-};
-
-const MOON_ORBIT_CONFIG = {
-  Earth:   { base: 0.80, step: 0.00 },
-  Mars:    { base: 0.55, step: 0.25 },
-  Jupiter: { base: 2.80, step: 0.35 },
-  Saturn:  { base: 3.30, step: 0.28 },
-  Uranus:  { base: 1.80, step: 0.22 },
-  Neptune: { base: 1.80, step: 0.28 },
-};
-
-const moonColors = {
-  Moon: 0xbbbbbb,
-  Phobos: 0x886655,
-  Deimos: 0x776655,
-  Io: 0xeedd88,
-  Europa: 0xdde8f0,
-  Ganymede: 0x998877,
-  Callisto: 0x665544,
-  Titan: 0xcc9944,
-  Enceladus: 0xeeeeee,
-  Triton: 0xddbbaa,
-};
-
-function moonVisualRadius(diameterKm) {
-  const refDiameter = 3474;
-  const refRadius = 0.15;
-  const scaled = refRadius * Math.pow(diameterKm / refDiameter, 0.35);
-  return THREE.MathUtils.clamp(scaled, 0.03, 0.22);
-}
-
-function moonOrbitRadius(index, config) {
-  return config.base + index * config.step;
-}
-
-function moonInclination(index, parentName) {
-  if (parentName === 'Earth') return THREE.MathUtils.degToRad(5.14);
-  return THREE.MathUtils.degToRad(2 + (index * 7.3) % 12);
-}
-
-function moonPhase(index) {
-  return (index * 2.399963) % (2 * Math.PI);
-}
-
-const textureFiles = {
-  Sun:     'textures/2k_sun.jpg',
-  Mercury: 'textures/2k_mercury.jpg',
-  Venus:   'textures/2k_venus_atmosphere.jpg',
-  Earth:   'textures/2k_earth_daymap.jpg',
-  Mars:    'textures/2k_mars.jpg',
-  Jupiter: 'textures/2k_jupiter.jpg',
-  Saturn:  'textures/2k_saturn.jpg',
-  Uranus:  'textures/2k_uranus.jpg',
-  Neptune: 'textures/2k_neptune.jpg',
-};
-
-// ---------------------------------------------------------------------------
-// Planet trivia / info panel data
-// ---------------------------------------------------------------------------
-const planetInfo = {
-  'Sun': {
-    type: 'G-type Main-Sequence Star',
-    diameter: '1,392,700 km',
-    distanceFromSun: null, // Will hide this row for Sun
-    dayLength: '25 Earth days (equator)',
-    yearLength: 'N/A (orbits galactic center)',
-    surfaceTemp: '5,500°C (photosphere)',
-    moons: 'N/A (star)',
-    atmosphere: 'Hydrogen (73%), Helium (25%)',
-    funFact: 'The Sun contains 99.86% of all the mass in the entire Solar System. It converts about 600 million tons of hydrogen into helium every second.',
-    color: '#FDB813'
-  },
-  'Mercury': {
-    type: 'Terrestrial Planet',
-    diameter: '4,879 km',
-    distanceFromSun: '57.9 million km (0.39 AU)',
-    dayLength: '59 Earth days',
-    yearLength: '88 Earth days',
-    surfaceTemp: '-180°C to 430°C',
-    moons: 0,
-    atmosphere: 'Extremely thin exosphere (O₂, Na, H₂, He)',
-    funFact: 'Despite being closest to the Sun, Mercury is NOT the hottest planet—Venus is hotter due to its thick greenhouse atmosphere.',
-    color: '#B0B0B0'
-  },
-  'Venus': {
-    type: 'Terrestrial Planet',
-    diameter: '12,104 km',
-    distanceFromSun: '108.2 million km (0.72 AU)',
-    dayLength: '243 Earth days (retrograde)',
-    yearLength: '225 Earth days',
-    surfaceTemp: '462°C (average)',
-    moons: 0,
-    atmosphere: 'Carbon dioxide (96.5%), Nitrogen (3.5%)',
-    funFact: 'Venus rotates backwards (retrograde) compared to most planets. The Sun rises in the west and sets in the east on Venus.',
-    color: '#E8CDA0'
-  },
-  'Earth': {
-    type: 'Terrestrial Planet',
-    diameter: '12,742 km',
-    distanceFromSun: '149.6 million km (1 AU)',
-    dayLength: '24 hours',
-    yearLength: '365.25 days',
-    surfaceTemp: '-89°C to 57°C',
-    moons: 1,
-    atmosphere: 'Nitrogen (78%), Oxygen (21%), Argon (0.9%)',
-    funFact: 'Earth is the only known planet to support life. Its surface is 71% water, earning it the nickname "The Blue Marble."',
-    color: '#4B9CD3'
-  },
-  'Moon': {
-    type: 'Natural Satellite (Earth)',
-    diameter: '3,474 km',
-    distanceFromSun: null, // Will hide this row
-    dayLength: '29.5 Earth days (tidally locked)',
-    yearLength: '27.3 days (orbital period)',
-    surfaceTemp: '-233°C to 123°C',
-    moons: 'N/A (moon itself)',
-    atmosphere: 'None (negligible exosphere)',
-    funFact: 'The Moon is slowly moving away from Earth at a rate of about 3.8 cm per year. It always shows the same face to Earth due to tidal locking.',
-    color: '#C0C0C0'
-  },
-  'Mars': {
-    type: 'Terrestrial Planet',
-    diameter: '6,779 km',
-    distanceFromSun: '227.9 million km (1.52 AU)',
-    dayLength: '24.6 hours',
-    yearLength: '687 Earth days',
-    surfaceTemp: '-140°C to 20°C',
-    moons: 2,
-    atmosphere: 'Carbon dioxide (95.3%), Nitrogen (2.7%), Argon (1.6%)',
-    funFact: 'Mars is home to Olympus Mons, the tallest volcano in the Solar System. It stands 21.9 km tall—nearly 2.5 times the height of Mount Everest.',
-    color: '#C1440E'
-  },
-  'Jupiter': {
-    type: 'Gas Giant',
-    diameter: '139,820 km',
-    distanceFromSun: '778.6 million km (5.2 AU)',
-    dayLength: '9.9 hours',
-    yearLength: '11.9 Earth years',
-    surfaceTemp: '-145°C (cloud top)',
-    moons: 95,
-    atmosphere: 'Hydrogen (90%), Helium (10%)',
-    funFact: 'The Great Red Spot on Jupiter is a persistent anticyclonic storm larger than Earth that has been raging for over 350 years.',
-    color: '#D4A574'
-  },
-  'Saturn': {
-    type: 'Gas Giant',
-    diameter: '116,460 km',
-    distanceFromSun: '1.43 billion km (9.54 AU)',
-    dayLength: '10.7 hours',
-    yearLength: '29.5 Earth years',
-    surfaceTemp: '-178°C (cloud top)',
-    moons: 146,
-    atmosphere: 'Hydrogen (96.3%), Helium (3.25%)',
-    funFact: 'Saturn\'s iconic rings are made almost entirely of water ice, with some rocky debris. The rings span up to 282,000 km wide but are only 10-100 meters thick.',
-    color: '#F4D59C'
-  },
-  'Uranus': {
-    type: 'Ice Giant',
-    diameter: '50,724 km',
-    distanceFromSun: '2.87 billion km (19.2 AU)',
-    dayLength: '17.2 hours',
-    yearLength: '84 Earth years',
-    surfaceTemp: '-224°C (cloud top)',
-    moons: 27,
-    atmosphere: 'Hydrogen (83%), Helium (15%), Methane (2%)',
-    funFact: 'Uranus rotates on its side with an axial tilt of 97.8°, likely caused by a massive collision early in its history.',
-    color: '#7EC8E3'
-  },
-  'Neptune': {
-    type: 'Ice Giant',
-    diameter: '49,244 km',
-    distanceFromSun: '4.5 billion km (30.07 AU)',
-    dayLength: '16.1 hours',
-    yearLength: '165 Earth years',
-    surfaceTemp: '-218°C (cloud top)',
-    moons: 16,
-    atmosphere: 'Hydrogen (80%), Helium (19%), Methane (1%)',
-    funFact: 'Neptune has the fastest sustained winds in the Solar System, reaching over 2,100 km/h (1,300 mph)—supersonic speeds.',
-    color: '#3F54BA'
-  }
-};
-
-// ---------------------------------------------------------------------------
-// Orbital mechanics
-// ---------------------------------------------------------------------------
-
-// Solve Kepler's equation E - e*sin(E) = M via Newton-Raphson
-function solveKepler(M, e) {
-  let E = M;
-  for (let k = 0; k < 10; k++) {
-    E = E - (E - e * Math.sin(E) - M) / (1 - e * Math.cos(E));
-  }
-  return E;
-}
-
-// Rotate a point in the orbital plane (x toward pericenter) into the 3D
-// ecliptic frame (Z = ecliptic north), then scale and convert to Y-up.
-function orbitalToScene(xOrb, yOrb, data) {
-  const w = data.ω * DEG;
-  const inc = data.i * DEG;
-  const O = data.Ω * DEG;
-
-  // Rotate by argument of periapsis ω in the orbital plane
-  const x1 = xOrb * Math.cos(w) - yOrb * Math.sin(w);
-  const y1 = xOrb * Math.sin(w) + yOrb * Math.cos(w);
-
-  // Rotate by inclination i around X
-  const x2 = x1;
-  const y2 = y1 * Math.cos(inc);
-  const z2 = y1 * Math.sin(inc);
-
-  // Rotate by longitude of ascending node Ω around Z
-  const xEcl = x2 * Math.cos(O) - y2 * Math.sin(O);
-  const yEcl = x2 * Math.sin(O) + y2 * Math.cos(O);
-  const zEcl = z2;
-
-  // Scale, and convert ecliptic (Z-up) to Three.js (Y-up)
-  return new THREE.Vector3(
-    xEcl * DISTANCE_SCALE,
-    zEcl * DISTANCE_SCALE,
-    yEcl * DISTANCE_SCALE
-  );
-}
-
-// Position of a planet at simulation time t (days since J2000)
-function getPlanetPosition(data, t) {
-  let M = (data.M0 + (360 / data.period) * t) * DEG;
-  M = M % (2 * Math.PI);
-  if (M < 0) M += 2 * Math.PI;
-
-  const E = solveKepler(M, data.e);
-
-  const xOrb = data.a * (Math.cos(E) - data.e);
-  const yOrb = data.a * Math.sqrt(1 - data.e * data.e) * Math.sin(E);
-
-  return orbitalToScene(xOrb, yOrb, data);
-}
-
-// Moon position relative to parent planet: simplified circular, tilted orbit
-function getMoonOffset(moon, t) {
-  const direction = moon.retrograde ? -1 : 1;
-  const angle = moon.phase + direction * 2 * Math.PI * (t / moon.period);
-  const r = moon.orbitRadius;
-  return new THREE.Vector3(
-    r * Math.cos(angle),
-    r * Math.sin(angle) * Math.sin(moon.inclination),
-    r * Math.sin(angle) * Math.cos(moon.inclination)
-  );
-}
-
-// ---------------------------------------------------------------------------
-// Canvas-generated textures
-// ---------------------------------------------------------------------------
-
-function makeSunTexture() {
-  const size = 512;
-  const canvas = document.createElement('canvas');
-  canvas.width = canvas.height = size;
-  const ctx = canvas.getContext('2d');
-
-  const grad = ctx.createRadialGradient(size / 2, size / 2, 0, size / 2, size / 2, size / 2);
-  grad.addColorStop(0.0, '#fff7d6');
-  grad.addColorStop(0.4, '#ffd24a');
-  grad.addColorStop(0.8, '#ff9220');
-  grad.addColorStop(1.0, '#e85e00');
-  ctx.fillStyle = grad;
-  ctx.fillRect(0, 0, size, size);
-
-  // Speckled noise for surface granulation
-  for (let i = 0; i < 4000; i++) {
-    const x = Math.random() * size;
-    const y = Math.random() * size;
-    const r = Math.random() * 2 + 0.5;
-    const a = Math.random() * 0.12;
-    ctx.fillStyle = Math.random() > 0.5
-      ? `rgba(255, 255, 220, ${a})`
-      : `rgba(200, 80, 0, ${a})`;
-    ctx.beginPath();
-    ctx.arc(x, y, r, 0, Math.PI * 2);
-    ctx.fill();
-  }
-
-  const tex = new THREE.CanvasTexture(canvas);
-  tex.colorSpace = THREE.SRGBColorSpace;
-  return tex;
-}
-
-function makeGlowTexture() {
-  const size = 256;
-  const canvas = document.createElement('canvas');
-  canvas.width = canvas.height = size;
-  const ctx = canvas.getContext('2d');
-
-  const grad = ctx.createRadialGradient(size / 2, size / 2, 0, size / 2, size / 2, size / 2);
-  grad.addColorStop(0.0, 'rgba(255, 240, 200, 1.0)');
-  grad.addColorStop(0.25, 'rgba(255, 200, 90, 0.55)');
-  grad.addColorStop(0.55, 'rgba(255, 140, 40, 0.18)');
-  grad.addColorStop(1.0, 'rgba(255, 100, 20, 0.0)');
-  ctx.fillStyle = grad;
-  ctx.fillRect(0, 0, size, size);
-
-  const tex = new THREE.CanvasTexture(canvas);
-  tex.colorSpace = THREE.SRGBColorSpace;
-  return tex;
-}
-
-function makeRingTexture() {
-  const w = 256, h = 16;
-  const canvas = document.createElement('canvas');
-  canvas.width = w;
-  canvas.height = h;
-  const ctx = canvas.getContext('2d');
-
-  // Horizontal gradient: inner edge (left) -> outer edge (right)
-  const grad = ctx.createLinearGradient(0, 0, w, 0);
-  grad.addColorStop(0.00, 'rgba(180, 150, 110, 0.0)');
-  grad.addColorStop(0.10, 'rgba(200, 175, 135, 0.55)');
-  grad.addColorStop(0.35, 'rgba(225, 200, 160, 0.85)');
-  grad.addColorStop(0.50, 'rgba(150, 125, 95, 0.25)');   // Cassini-like gap
-  grad.addColorStop(0.62, 'rgba(215, 190, 150, 0.75)');
-  grad.addColorStop(0.88, 'rgba(190, 165, 125, 0.5)');
-  grad.addColorStop(1.00, 'rgba(170, 145, 105, 0.0)');
-  ctx.fillStyle = grad;
-  ctx.fillRect(0, 0, w, h);
-
-  const tex = new THREE.CanvasTexture(canvas);
-  tex.colorSpace = THREE.SRGBColorSpace;
-  return tex;
-}
-
-// ---------------------------------------------------------------------------
-// Scene setup
-// ---------------------------------------------------------------------------
 const scene = new THREE.Scene();
 
 const camera = new THREE.PerspectiveCamera(55, window.innerWidth / window.innerHeight, 0.1, 10000);
@@ -437,7 +26,6 @@ renderer.setSize(window.innerWidth, window.innerHeight);
 renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
 document.getElementById('canvas-container').appendChild(renderer.domElement);
 
-// CSS2D renderer for planet name/distance labels
 const labelRenderer = new CSS2DRenderer();
 labelRenderer.setSize(window.innerWidth, window.innerHeight);
 labelRenderer.domElement.id = 'label-container';
@@ -449,19 +37,16 @@ controls.dampingFactor = 0.06;
 controls.minDistance = 1;
 controls.maxDistance = 3000;
 
-// Lighting
 const sunLight = new THREE.PointLight(0xfff2dd, 1.5, 0, 0);
 scene.add(sunLight);
 scene.add(new THREE.AmbientLight(0xffffff, 0.1));
 
-// Sun
 const sunMaterial = new THREE.MeshBasicMaterial({ map: makeSunTexture() });
 const sunMesh = new THREE.Mesh(new THREE.SphereGeometry(SUN_RADIUS, 64, 64), sunMaterial);
 sunMesh.name = 'Sun';
 sunMesh.userData.planetName = 'Sun';
 scene.add(sunMesh);
 
-// Sun glow sprite
 const glowSprite = new THREE.Sprite(new THREE.SpriteMaterial({
   map: makeGlowTexture(),
   blending: THREE.AdditiveBlending,
@@ -471,7 +56,6 @@ const glowSprite = new THREE.Sprite(new THREE.SpriteMaterial({
 glowSprite.scale.set(15, 15, 1);
 scene.add(glowSprite);
 
-// Texture loader with graceful fallback (skipped on file:// to avoid CORS errors)
 const textureLoader = new THREE.TextureLoader();
 function tryLoadTexture(url, material) {
   if (!CAN_LOAD_LOCAL_TEXTURES) return;
@@ -480,12 +64,11 @@ function tryLoadTexture(url, material) {
     (tex) => {
       tex.colorSpace = THREE.SRGBColorSpace;
       material.map = tex;
-      material.color.set(0xffffff); // let the texture carry the color
+      material.color.set(0xffffff);
       material.needsUpdate = true;
     },
     undefined,
     () => {
-      // Texture missing: keep fallback color, map stays null
       material.map = null;
       material.needsUpdate = true;
     }
@@ -508,9 +91,8 @@ if (CAN_LOAD_LOCAL_TEXTURES) {
   document.body.appendChild(warn);
 }
 
-// Planets
-const planets = [];          // { data, group, mesh }
-const planetMeshes = [];     // for raycasting
+const planets = [];
+const planetMeshes = [];
 
 for (const data of planetsData) {
   const group = new THREE.Group();
@@ -528,10 +110,8 @@ for (const data of planetsData) {
   mesh.userData.planetName = data.name;
   group.add(mesh);
 
-  // Saturn's rings
   if (data.name === 'Saturn') {
     const ringGeo = new THREE.RingGeometry(2.2, 3.0, 64);
-    // Remap UVs so u runs radially from inner edge (0) to outer edge (1)
     const pos = ringGeo.attributes.position;
     const uv = ringGeo.attributes.uv;
     const v3 = new THREE.Vector3();
@@ -549,7 +129,6 @@ for (const data of planetsData) {
       depthWrite: false,
     });
     const ring = new THREE.Mesh(ringGeo, ringMat);
-    // Lay flat, then apply Saturn's 26.7 degree axial tilt about X
     ring.rotation.x = -Math.PI / 2 + THREE.MathUtils.degToRad(26.7);
     group.add(ring);
   }
@@ -557,7 +136,6 @@ for (const data of planetsData) {
   scene.add(group);
   const entry = { data, group, mesh };
 
-  // Name + distance label, anchored just above the planet
   const labelEl = document.createElement('div');
   labelEl.className = 'planet-label';
   const nameEl = document.createElement('span');
@@ -585,9 +163,8 @@ for (const data of planetsData) {
   planetMeshes.push(mesh);
 }
 
-// Moons (render-only except Earth's Moon, which stays trackable)
 const moons = [];
-const planetMap = Object.fromEntries(planets.map(p => [p.data.name, p]));
+const planetMap = Object.fromEntries(planets.map((p) => [p.data.name, p]));
 let earthMoonMesh = null;
 
 for (const [parentName, moonList] of Object.entries(moonsData)) {
@@ -596,10 +173,13 @@ for (const [parentName, moonList] of Object.entries(moonsData)) {
   const orbitConfig = MOON_ORBIT_CONFIG[parentName];
 
   moonList.forEach((moonData, index) => {
-    const radius = moonVisualRadius(moonData.diameter);
+    const moonState = buildMoonState(moonData, index, parentName, orbitConfig);
     const color = moonColors[moonData.name] ?? 0x999999;
     const material = new THREE.MeshStandardMaterial({ color, roughness: 1.0 });
-    const mesh = new THREE.Mesh(new THREE.SphereGeometry(radius, 16, 16), material);
+    const mesh = new THREE.Mesh(
+      new THREE.SphereGeometry(moonState.visualRadius, 16, 16),
+      material
+    );
     mesh.name = moonData.name;
 
     if (parentName === 'Earth' && moonData.name === 'Moon') {
@@ -611,17 +191,11 @@ for (const [parentName, moonList] of Object.entries(moonsData)) {
     moons.push({
       mesh,
       parentEntry,
-      orbitRadius: moonOrbitRadius(index, orbitConfig),
-      period: moonData.period,
-      inclination: moonInclination(index, parentName),
-      phase: moonPhase(index),
-      retrograde: !!moonData.retrograde,
+      ...moonState,
     });
   });
 }
 
-// Trackable entries for the Sun and Moon (panel + camera tracking).
-// `group` is whatever object carries the body's world position each frame.
 const sunEntry = { data: { name: 'Sun', radius: SUN_RADIUS }, group: sunMesh, mesh: sunMesh };
 const moonEntry = {
   data: { name: 'Moon', radius: earthMoonMesh ? moonVisualRadius(3474) : 0.15 },
@@ -629,18 +203,9 @@ const moonEntry = {
   mesh: earthMoonMesh,
 };
 
-// Everything selectable, in display order for the dropdown
-const trackables = [
-  sunEntry,
-  ...planets.slice(0, 3),  // Mercury, Venus, Earth
-  moonEntry,
-  ...planets.slice(3),     // Mars .. Neptune
-];
+const trackables = buildTrackables(sunEntry, planets, moonEntry);
+const selectableBodies = trackables.map((t) => t.mesh);
 
-// Flat mesh array for raycasting
-const selectableBodies = trackables.map(t => t.mesh);
-
-// Orbit lines (static full ellipses)
 const orbitLines = [];
 for (const data of planetsData) {
   const points = [];
@@ -661,7 +226,6 @@ for (const data of planetsData) {
   orbitLines.push(line);
 }
 
-// Starfield: ~2000 random points on a distant sphere
 {
   const starCount = 2000;
   const positions = new Float32Array(starCount * 3);
@@ -669,7 +233,7 @@ for (const data of planetsData) {
   for (let i = 0; i < starCount; i++) {
     v.set(Math.random() * 2 - 1, Math.random() * 2 - 1, Math.random() * 2 - 1)
       .normalize()
-      .multiplyScalar(1800 + Math.random() * 400); // beyond Neptune's orbit
+      .multiplyScalar(1800 + Math.random() * 400);
     positions[i * 3] = v.x;
     positions[i * 3 + 1] = v.y;
     positions[i * 3 + 2] = v.z;
@@ -684,9 +248,6 @@ for (const data of planetsData) {
   scene.add(new THREE.Points(starGeo, starMat));
 }
 
-// ---------------------------------------------------------------------------
-// UI wiring
-// ---------------------------------------------------------------------------
 const planetSelect = document.getElementById('planet-select');
 const speedSlider = document.getElementById('speed-slider');
 const speedValue = document.getElementById('speed-value');
@@ -702,8 +263,8 @@ for (const t of trackables) {
 }
 
 let timeSpeed = parseFloat(speedSlider.value);
-let selectedPlanet = null;          // entry from `planets`, or null for free camera
-let cameraTransition = 0;           // seconds remaining of position smoothing
+let selectedPlanet = null;
+let cameraTransition = 0;
 let desiredDistance = 0;
 
 speedSlider.addEventListener('input', () => {
@@ -719,57 +280,30 @@ labelsToggle.addEventListener('change', () => {
   for (const p of planets) p.labelObj.visible = labelsToggle.checked;
 });
 
-// ---------------------------------------------------------------------------
-// Info panel
-// ---------------------------------------------------------------------------
 const infoPanel = document.getElementById('info-panel');
-let selectedPlanetName = null; // null = free camera, string = body name
-
-function updateInfoPanel(planetName) {
-  const data = planetInfo[planetName];
-
-  if (!data) {
-    infoPanel.classList.add('hidden');
-    selectedPlanetName = null;
-    return;
-  }
-
-  document.getElementById('planet-name').textContent = planetName;
-
-  const icon = document.getElementById('planet-icon');
-  icon.style.backgroundColor = data.color;
-  icon.style.boxShadow = `0 0 14px ${data.color}`;
-
-  document.getElementById('info-type').textContent = data.type;
-  document.getElementById('info-diameter').textContent = data.diameter;
-  document.getElementById('info-day').textContent = data.dayLength;
-  document.getElementById('info-year').textContent = data.yearLength;
-  document.getElementById('info-temp').textContent = data.surfaceTemp;
-  document.getElementById('info-atmosphere').textContent = data.atmosphere;
-  document.getElementById('info-funfact').textContent = data.funFact;
-  document.getElementById('info-moons').textContent = data.moons;
-
-  // Distance row is hidden for the Sun and the Moon (null values)
-  const distanceRow = document.getElementById('row-distance');
-  if (data.distanceFromSun === null) {
-    distanceRow.style.display = 'none';
-  } else {
-    distanceRow.style.display = 'flex';
-    document.getElementById('info-distance').textContent = data.distanceFromSun;
-  }
-
-  infoPanel.classList.remove('hidden');
-  selectedPlanetName = planetName;
-}
+const updateInfoPanel = createInfoPanelUpdater({
+  panel: infoPanel,
+  name: document.getElementById('planet-name'),
+  icon: document.getElementById('planet-icon'),
+  type: document.getElementById('info-type'),
+  diameter: document.getElementById('info-diameter'),
+  day: document.getElementById('info-day'),
+  year: document.getElementById('info-year'),
+  temp: document.getElementById('info-temp'),
+  atmosphere: document.getElementById('info-atmosphere'),
+  funFact: document.getElementById('info-funfact'),
+  moons: document.getElementById('info-moons'),
+  distanceRow: document.getElementById('row-distance'),
+  distance: document.getElementById('info-distance'),
+});
 
 function hideInfoPanel() {
   infoPanel.classList.add('hidden');
-  selectedPlanetName = null;
 }
 
 document.getElementById('close-panel').addEventListener('click', (e) => {
   e.stopPropagation();
-  selectPlanet(null); // also resets dropdown, label highlight, and tracking
+  selectPlanet(null);
 });
 
 function selectPlanet(entry) {
@@ -778,8 +312,8 @@ function selectPlanet(entry) {
   if (entry) {
     planetSelect.value = entry.data.name;
     selectedNameEl.textContent = 'Tracking: ' + entry.data.name;
-    cameraTransition = 1.0; // ~1 second of smoothing toward a sensible distance
-    desiredDistance = Math.max(entry.data.radius * 8, 1.5);
+    cameraTransition = 1.0;
+    desiredDistance = getDesiredCameraDistance(entry.data.radius);
     updateInfoPanel(entry.data.name);
   } else {
     planetSelect.value = 'free';
@@ -793,14 +327,14 @@ planetSelect.addEventListener('change', () => {
   if (planetSelect.value === 'free') {
     selectPlanet(null);
   } else {
-    selectPlanet(trackables.find(t => t.data.name === planetSelect.value) || null);
+    selectPlanet(findTrackableByName(trackables, planetSelect.value));
   }
 });
 
-// Click selection via raycasting (distinguish clicks from drags)
 const raycaster = new THREE.Raycaster();
 const pointer = new THREE.Vector2();
-let downX = 0, downY = 0;
+let downX = 0;
+let downY = 0;
 
 renderer.domElement.addEventListener('pointerdown', (e) => {
   downX = e.clientX;
@@ -810,39 +344,35 @@ renderer.domElement.addEventListener('pointerdown', (e) => {
 renderer.domElement.addEventListener('pointerup', (e) => {
   const dx = e.clientX - downX;
   const dy = e.clientY - downY;
-  if (Math.hypot(dx, dy) > 5) return; // it was a drag, not a click
+  if (!isPointerClick(dx, dy)) return;
   if (e.button !== 0) return;
 
-  pointer.x = (e.clientX / window.innerWidth) * 2 - 1;
-  pointer.y = -(e.clientY / window.innerHeight) * 2 + 1;
+  const ndc = pointerToNormalizedDeviceCoords(e.clientX, e.clientY, window.innerWidth, window.innerHeight);
+  pointer.x = ndc.x;
+  pointer.y = ndc.y;
   raycaster.setFromCamera(pointer, camera);
 
   const hits = raycaster.intersectObjects(selectableBodies, false);
   if (hits.length > 0) {
     const planetName = hits[0].object.userData.planetName;
-    const entry = trackables.find(t => t.data.name === planetName);
-    if (entry) selectPlanet(entry);
+    selectPlanet(findTrackableByName(trackables, planetName));
   } else {
-    // Clicked empty space: deselect and hide the panel
     selectPlanet(null);
   }
 });
 
-// Hover effect: pointer cursor over selectable bodies
 renderer.domElement.addEventListener('mousemove', (e) => {
-  pointer.x = (e.clientX / window.innerWidth) * 2 - 1;
-  pointer.y = -(e.clientY / window.innerHeight) * 2 + 1;
+  const ndc = pointerToNormalizedDeviceCoords(e.clientX, e.clientY, window.innerWidth, window.innerHeight);
+  pointer.x = ndc.x;
+  pointer.y = ndc.y;
   raycaster.setFromCamera(pointer, camera);
   const hits = raycaster.intersectObjects(selectableBodies, false);
   renderer.domElement.style.cursor = hits.length > 0 ? 'pointer' : 'default';
 });
 
-// ---------------------------------------------------------------------------
-// Animation loop
-// ---------------------------------------------------------------------------
 const clock = new THREE.Clock();
-let simTime = 0; // days since J2000
-let labelTimer = 1; // force an immediate first update
+let simTime = 0;
+let labelTimer = 1;
 const tmpTarget = new THREE.Vector3();
 const tmpDelta = new THREE.Vector3();
 const tmpDir = new THREE.Vector3();
@@ -853,57 +383,44 @@ function animate() {
   const dt = Math.min(clock.getDelta(), 0.1);
   simTime += dt * timeSpeed * SIM_RATE;
 
-  // Sun slow rotation (visual flourish)
   sunMesh.rotation.y += dt * 0.05;
 
-  // Planets
   for (const p of planets) {
     p.group.position.copy(getPlanetPosition(p.data, simTime));
-    p.mesh.rotation.y += dt * 0.3; // simple visual spin
+    p.mesh.rotation.y += dt * 0.3;
   }
 
-  // Moons
   for (const moon of moons) {
     moon.mesh.position.copy(moon.parentEntry.group.position).add(getMoonOffset(moon, simTime));
     moon.mesh.rotation.y += dt * 0.3;
   }
 
-  // Refresh distance-from-Sun labels ~10x per second
   labelTimer += dt;
   if (labelTimer > 0.1) {
     labelTimer = 0;
     for (const p of planets) {
-      const distAU = p.group.position.length() / DISTANCE_SCALE;
-      const distMkm = (distAU * AU_KM) / 1e6;
-      p.distEl.textContent = distAU.toFixed(3) + ' AU · ' + distMkm.toFixed(1) + ' M km';
+      p.distEl.textContent = formatPlanetDistanceLabel(p.group.position.length());
     }
   }
 
-  // Camera tracking
   if (selectedPlanet) {
     const planetPos = selectedPlanet.group.position;
 
-    // During the ~1s transition, ease toward the planet; afterwards lock on,
-    // so the camera moves with the planet (keeping its orbit offset) instead
-    // of staying behind while the planet drifts away.
     if (cameraTransition > 0) {
       cameraTransition -= dt;
 
-      tmpTarget.copy(controls.target).lerp(planetPos, 1 - Math.pow(0.001, dt)); // smooth, frame-rate independent
+      tmpTarget.copy(controls.target).lerp(planetPos, 1 - Math.pow(0.001, dt));
       tmpDelta.copy(tmpTarget).sub(controls.target);
       camera.position.add(tmpDelta);
       controls.target.copy(tmpTarget);
 
-      // Ease the camera distance to a sensible framing for this planet
       const currentDist = camera.position.distanceTo(controls.target);
       tmpDir.copy(camera.position).sub(controls.target).normalize();
       const newDist = THREE.MathUtils.lerp(currentDist, desiredDistance, 1 - Math.pow(0.01, dt));
       camera.position.copy(controls.target).addScaledVector(tmpDir, newDist);
 
-      // Snap into locked-follow mode once we've essentially arrived
       if (controls.target.distanceTo(planetPos) < 0.05) cameraTransition = 0;
     } else {
-      // Locked follow: shift target and camera by exactly the planet's motion
       tmpDelta.copy(planetPos).sub(controls.target);
       camera.position.add(tmpDelta);
       controls.target.copy(planetPos);

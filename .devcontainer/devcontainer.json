@@ -10,7 +10,8 @@
       "onAutoForward": "openBrowser"
     }
   },
-  "postStartCommand": "npm start",
+  "postCreateCommand": "corepack enable && corepack prepare pnpm@10.12.1 --activate && pnpm install",
+  "postStartCommand": "pnpm start",
   "customizations": {
     "vscode": {
       "extensions": [

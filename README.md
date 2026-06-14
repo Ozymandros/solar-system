@@ -23,8 +23,9 @@ Browsers **block loading local image files** (`textures/*.jpg`) when the page is
 Use any of these from the project folder:
 
 ```bash
-# npm (included package.json)
-npm start
+# pnpm (recommended — see package.json)
+pnpm install
+pnpm start
 
 # Windows: double-click serve.bat
 
@@ -32,7 +33,7 @@ npm start
 python -m http.server 8080
 ```
 
-Then open [http://localhost:8080/solar-system.html](http://localhost:8080/solar-system.html).
+Then open [http://localhost:8080/index.html](http://localhost:8080/index.html).
 
 ### Option 2: Open directly (no textures)
 

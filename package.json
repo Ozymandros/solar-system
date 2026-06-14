@@ -1,12 +1,31 @@
 {
   "name": "solar-system",
+  "version": "1.0.1",
   "private": true,
+  "type": "module",
+  "packageManager": "pnpm@10.12.1",
   "description": "3D Solar System Simulator",
   "scripts": {
-    "start": "npx --yes serve . -p 8080",
+    "preinstall": "npx only-allow pnpm",
+    "start": "serve . -p 8080",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "test:coverage": "vitest run --coverage",
     "docker:build": "docker build -t solar-system .",
     "docker:run": "docker run --rm -p 8080:80 solar-system",
     "docker:up": "docker compose up --build web",
     "docker:down": "docker compose down"
+  },
+  "devDependencies": {
+    "@vitest/coverage-v8": "^3.2.4",
+    "jsdom": "^26.1.0",
+    "only-allow": "^1.2.1",
+    "serve": "^14.2.4",
+    "three": "^0.160.0",
+    "vitest": "^3.2.4"
+  },
+  "engines": {
+    "node": ">=20",
+    "pnpm": ">=9"
   }
 }
