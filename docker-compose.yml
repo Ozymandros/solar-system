@@ -1,0 +1,13 @@
+services:
+  web:
+    build: .
+    ports:
+      - "8080:80"
+    restart: unless-stopped
+
+  dev:
+    image: mcr.microsoft.com/devcontainers/javascript-node:1-22-bookworm
+    volumes:
+      - .:/workspace:cached
+    working_dir: /workspace
+    command: sleep infinity

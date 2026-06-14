@@ -1,0 +1,12 @@
+{
+  "name": "solar-system",
+  "private": true,
+  "description": "3D Solar System Simulator",
+  "scripts": {
+    "start": "npx --yes serve . -p 8080",
+    "docker:build": "docker build -t solar-system .",
+    "docker:run": "docker run --rm -p 8080:80 solar-system",
+    "docker:up": "docker compose up --build web",
+    "docker:down": "docker compose down"
+  }
+}

@@ -16,26 +16,27 @@ No build step or install required — open the HTML file in a modern browser and
 
 ## Quick Start
 
-### Option 1: Local web server (recommended)
+### Option 1: Local web server (required for textures)
 
-ES modules load Three.js from a CDN. Some browsers block module imports over `file://`, so a local server is the most reliable way to run the simulator.
+Browsers **block loading local image files** (`textures/*.jpg`) when the page is opened via `file://` (double-click). This is a CORS security restriction — not a bug in the simulator.
+
+Use any of these from the project folder:
 
 ```bash
+# npm (included package.json)
+npm start
+
+# Windows: double-click serve.bat
+
 # Python 3
 python -m http.server 8080
-
-# Node.js (npx, no install)
-npx serve .
-
-# PHP
-php -S localhost:8080
 ```
 
 Then open [http://localhost:8080/solar-system.html](http://localhost:8080/solar-system.html).
 
-### Option 2: Open directly
+### Option 2: Open directly (no textures)
 
-Double-click `solar-system.html`. If the scene stays black or the console shows module/CORS errors, use a local server instead.
+Double-click `solar-system.html` to run without a server. The simulator works with procedural/fallback colors, but **planet textures are skipped** to avoid CORS console errors. A banner at the bottom explains how to enable textures.
 
 ## Controls
 
@@ -78,7 +79,7 @@ Place 2K equirectangular maps in a `textures/` folder next to the HTML file:
 
 ```
 textures/
-  2k_sun.jpg
+  2k_sun.jpg          # or 2k_sun.webp (solar-system-moons.html uses .webp)
   2k_mercury.jpg
   2k_venus_atmosphere.jpg
   2k_earth_daymap.jpg
@@ -96,7 +97,7 @@ If a texture is missing, the simulator falls back to procedural (Sun) or solid-c
 ```
 solar-system/
 ├── solar-system.html      # Main simulator (self-contained)
-├── solar-system-moons.html # Same content as solar-system.html
+├── solar-system-moons.html # Same content as solar-system.html including all moons
 ├── textures/              # Optional planet textures (not bundled)
 └── README.md
 ```

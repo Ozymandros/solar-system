@@ -1,425 +1,10 @@
-<!DOCTYPE html>
-<html lang="en">
-<head>
-<meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>3D Solar System Simulator</title>
-<style>
-  html, body {
-    margin: 0;
-    padding: 0;
-    overflow: hidden;
-    background: #000;
-    font-family: 'Segoe UI', system-ui, -apple-system, sans-serif;
-    color: #e8e8e8;
-  }
-  #canvas-container {
-    position: fixed;
-    inset: 0;
-  }
-  #ui-panel {
-    position: fixed;
-    top: 16px;
-    left: 16px;
-    background: rgba(10, 14, 24, 0.72);
-    backdrop-filter: blur(8px);
-    -webkit-backdrop-filter: blur(8px);
-    border: 1px solid rgba(255, 255, 255, 0.12);
-    border-radius: 10px;
-    padding: 14px 16px;
-    min-width: 230px;
-    user-select: none;
-    box-shadow: 0 4px 24px rgba(0, 0, 0, 0.5);
-  }
-  #ui-panel h1 {
-    margin: 0 0 10px 0;
-    font-size: 14px;
-    font-weight: 600;
-    letter-spacing: 0.08em;
-    text-transform: uppercase;
-    color: #ffd27d;
-  }
-  .control-row {
-    margin-bottom: 12px;
-  }
-  .control-row:last-child {
-    margin-bottom: 0;
-  }
-  label {
-    display: block;
-    font-size: 11px;
-    letter-spacing: 0.05em;
-    text-transform: uppercase;
-    color: #9aa4b8;
-    margin-bottom: 4px;
-  }
-  select {
-    width: 100%;
-    padding: 6px 8px;
-    background: rgba(255, 255, 255, 0.08);
-    color: #e8e8e8;
-    border: 1px solid rgba(255, 255, 255, 0.18);
-    border-radius: 6px;
-    font-size: 13px;
-    outline: none;
-    cursor: pointer;
-  }
-  select option {
-    background: #141a28;
-    color: #e8e8e8;
-  }
-  input[type="range"] {
-    width: 100%;
-    accent-color: #ffd27d;
-    cursor: pointer;
-  }
-  .checkbox-row {
-    display: flex;
-    align-items: center;
-    gap: 8px;
-  }
-  .checkbox-row label {
-    margin: 0;
-    cursor: pointer;
-  }
-  input[type="checkbox"] {
-    accent-color: #ffd27d;
-    cursor: pointer;
-    width: 15px;
-    height: 15px;
-  }
-  #speed-value {
-    color: #ffd27d;
-    font-variant-numeric: tabular-nums;
-  }
-  #selected-name {
-    font-size: 12px;
-    color: #7fc4ff;
-    min-height: 14px;
-  }
-  #hint {
-    position: fixed;
-    bottom: 12px;
-    left: 16px;
-    font-size: 11px;
-    color: rgba(255, 255, 255, 0.45);
-    pointer-events: none;
-  }
-  #label-container {
-    position: fixed;
-    inset: 0;
-    pointer-events: none;
-    z-index: 5;
-  }
-  .planet-label {
-    pointer-events: auto;
-    cursor: pointer;
-    text-align: center;
-    white-space: nowrap;
-    background: rgba(10, 14, 24, 0.55);
-    border: 1px solid rgba(255, 255, 255, 0.14);
-    border-radius: 6px;
-    padding: 2px 7px 3px 7px;
-    transition: background 0.15s, border-color 0.15s;
-  }
-  .planet-label:hover {
-    background: rgba(30, 44, 70, 0.85);
-    border-color: rgba(127, 196, 255, 0.6);
-  }
-  .planet-label.tracked {
-    border-color: #ffd27d;
-  }
-  .planet-label .label-name {
-    display: block;
-    font-size: 12px;
-    font-weight: 600;
-    color: #e8e8e8;
-    letter-spacing: 0.03em;
-  }
-  .planet-label .label-dist {
-    display: block;
-    font-size: 10px;
-    color: #9aa4b8;
-    font-variant-numeric: tabular-nums;
-  }
-
-  /* ========== INFO PANEL STYLES ========== */
-  .info-panel {
-    position: fixed;
-    top: 20px;
-    right: 20px;
-    width: 340px;
-    max-width: calc(100vw - 40px);
-    max-height: calc(100vh - 40px);
-    overflow-y: auto;
-    background: rgba(10, 15, 30, 0.78);
-    backdrop-filter: blur(24px);
-    -webkit-backdrop-filter: blur(24px);
-    border: 1px solid rgba(255, 255, 255, 0.12);
-    border-radius: 18px;
-    padding: 24px;
-    color: #ffffff;
-    font-family: 'Segoe UI', system-ui, -apple-system, sans-serif;
-    box-shadow: 0 8px 40px rgba(0, 0, 0, 0.5), inset 0 1px 0 rgba(255, 255, 255, 0.05);
-    z-index: 100;
-    transition: transform 0.45s cubic-bezier(0.4, 0, 0.2, 1),
-                opacity 0.45s cubic-bezier(0.4, 0, 0.2, 1);
-    transform: translateX(0);
-    opacity: 1;
-  }
-
-  .info-panel.hidden {
-    transform: translateX(calc(100% + 40px));
-    opacity: 0;
-    pointer-events: none;
-  }
-
-  .info-panel-header {
-    display: flex;
-    align-items: center;
-    gap: 12px;
-    margin-bottom: 4px;
-  }
-
-  .planet-icon {
-    width: 14px;
-    height: 14px;
-    border-radius: 50%;
-    flex-shrink: 0;
-    box-shadow: 0 0 12px currentColor;
-  }
-
-  #planet-name {
-    font-size: 22px;
-    font-weight: 700;
-    margin: 0;
-    flex-grow: 1;
-    letter-spacing: -0.3px;
-    background: linear-gradient(180deg, #ffffff 0%, #d0d8e8 100%);
-    -webkit-background-clip: text;
-    -webkit-text-fill-color: transparent;
-    background-clip: text;
-  }
-
-  .close-btn {
-    background: rgba(255, 255, 255, 0.08);
-    border: 1px solid rgba(255, 255, 255, 0.15);
-    color: rgba(255, 255, 255, 0.7);
-    width: 30px;
-    height: 30px;
-    border-radius: 50%;
-    cursor: pointer;
-    font-size: 14px;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    transition: all 0.2s;
-    flex-shrink: 0;
-  }
-
-  .close-btn:hover {
-    background: rgba(255, 255, 255, 0.18);
-    color: #ffffff;
-  }
-
-  .info-divider {
-    height: 1px;
-    background: linear-gradient(90deg,
-      transparent 0%,
-      rgba(255,255,255,0.15) 20%,
-      rgba(255,255,255,0.15) 80%,
-      transparent 100%);
-    margin: 14px 0;
-  }
-
-  .info-grid {
-    display: flex;
-    flex-direction: column;
-    gap: 10px;
-  }
-
-  .info-item {
-    display: flex;
-    justify-content: space-between;
-    align-items: baseline;
-    gap: 12px;
-  }
-
-  .info-label {
-    font-size: 12px;
-    font-weight: 500;
-    text-transform: uppercase;
-    letter-spacing: 0.8px;
-    color: rgba(255, 255, 255, 0.5);
-    flex-shrink: 0;
-  }
-
-  .info-value {
-    font-size: 14px;
-    font-weight: 500;
-    text-align: right;
-    color: rgba(255, 255, 255, 0.9);
-    line-height: 1.3;
-  }
-
-  .fun-fact-box {
-    background: rgba(255, 255, 255, 0.05);
-    border: 1px solid rgba(255, 255, 255, 0.08);
-    border-radius: 12px;
-    padding: 14px 16px;
-    margin-top: 4px;
-  }
-
-  .fun-fact-header {
-    display: flex;
-    align-items: center;
-    gap: 8px;
-    margin-bottom: 8px;
-  }
-
-  .fun-fact-icon {
-    font-size: 18px;
-  }
-
-  .fun-fact-title {
-    font-size: 13px;
-    font-weight: 700;
-    text-transform: uppercase;
-    letter-spacing: 1px;
-    color: rgba(255, 255, 255, 0.6);
-  }
-
-  .fun-fact-text {
-    margin: 0;
-    font-size: 13.5px;
-    line-height: 1.5;
-    color: rgba(255, 255, 255, 0.85);
-    font-style: italic;
-  }
-
-  .info-panel::-webkit-scrollbar {
-    width: 4px;
-  }
-
-  .info-panel::-webkit-scrollbar-track {
-    background: transparent;
-  }
-
-  .info-panel::-webkit-scrollbar-thumb {
-    background: rgba(255, 255, 255, 0.2);
-    border-radius: 10px;
-  }
-
-  @media (max-width: 600px) {
-    .info-panel {
-      width: calc(100vw - 20px);
-      right: 10px;
-      top: 10px;
-      max-height: 50vh;
-    }
-  }
-</style>
-<script type="importmap">
-{
-  "imports": {
-    "three": "https://unpkg.com/three@0.160.0/build/three.module.js",
-    "three/addons/": "https://unpkg.com/three@0.160.0/examples/jsm/"
-  }
-}
-</script>
-</head>
-<body>
-<div id="canvas-container"></div>
-
-<div id="ui-panel">
-  <h1>Solar System</h1>
-  <div class="control-row">
-    <label for="planet-select">Camera Target</label>
-    <select id="planet-select">
-      <option value="free">Free Camera</option>
-    </select>
-  </div>
-  <div class="control-row">
-    <label for="speed-slider">Time Speed: <span id="speed-value">5</span>x</label>
-    <input type="range" id="speed-slider" min="0" max="100" step="1" value="5">
-  </div>
-  <div class="control-row checkbox-row">
-    <input type="checkbox" id="orbits-toggle" checked>
-    <label for="orbits-toggle">Show Orbits</label>
-  </div>
-  <div class="control-row checkbox-row">
-    <input type="checkbox" id="labels-toggle" checked>
-    <label for="labels-toggle">Show Labels</label>
-  </div>
-  <div class="control-row">
-    <div id="selected-name">Tracking: —</div>
-  </div>
-</div>
-
-<!-- Planet Information Panel -->
-<div id="info-panel" class="info-panel hidden">
-  <div class="info-panel-header">
-    <div class="planet-icon" id="planet-icon"></div>
-    <h2 id="planet-name">Planet Name</h2>
-    <button id="close-panel" class="close-btn" title="Close panel">✕</button>
-  </div>
-
-  <div class="info-divider"></div>
-
-  <div class="info-grid">
-    <div class="info-item" id="row-type">
-      <span class="info-label">Type</span>
-      <span class="info-value" id="info-type"></span>
-    </div>
-    <div class="info-item" id="row-diameter">
-      <span class="info-label">Diameter</span>
-      <span class="info-value" id="info-diameter"></span>
-    </div>
-    <div class="info-item" id="row-distance">
-      <span class="info-label">Distance from Sun</span>
-      <span class="info-value" id="info-distance"></span>
-    </div>
-    <div class="info-item" id="row-day">
-      <span class="info-label">Day Length</span>
-      <span class="info-value" id="info-day"></span>
-    </div>
-    <div class="info-item" id="row-year">
-      <span class="info-label">Year Length</span>
-      <span class="info-value" id="info-year"></span>
-    </div>
-    <div class="info-item" id="row-temp">
-      <span class="info-label">Avg. Temperature</span>
-      <span class="info-value" id="info-temp"></span>
-    </div>
-    <div class="info-item" id="row-moons">
-      <span class="info-label">Known Moons</span>
-      <span class="info-value" id="info-moons"></span>
-    </div>
-    <div class="info-item" id="row-atmosphere">
-      <span class="info-label">Atmosphere</span>
-      <span class="info-value" id="info-atmosphere"></span>
-    </div>
-  </div>
-
-  <div class="info-divider"></div>
-
-  <div class="fun-fact-box">
-    <div class="fun-fact-header">
-      <span class="fun-fact-icon">💡</span>
-      <span class="fun-fact-title">Did You Know?</span>
-    </div>
-    <p id="info-funfact" class="fun-fact-text"></p>
-  </div>
-</div>
-
-<div id="hint">Left-drag: rotate · Scroll: zoom · Right-drag: pan · Click a planet to track it</div>
-
-<script type="module">
 import * as THREE from 'three';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 import { CSS2DRenderer, CSS2DObject } from 'three/addons/renderers/CSS2DRenderer.js';
 
 const AU_KM = 149597870.7; // kilometers per astronomical unit
+// Browsers block local image loads from file:// pages (CORS). Use a local HTTP server for textures.
+const CAN_LOAD_LOCAL_TEXTURES = window.location.protocol !== 'file:';
 
 // ---------------------------------------------------------------------------
 // Constants
@@ -886,9 +471,10 @@ const glowSprite = new THREE.Sprite(new THREE.SpriteMaterial({
 glowSprite.scale.set(15, 15, 1);
 scene.add(glowSprite);
 
-// Texture loader with graceful fallback
+// Texture loader with graceful fallback (skipped on file:// to avoid CORS errors)
 const textureLoader = new THREE.TextureLoader();
 function tryLoadTexture(url, material) {
+  if (!CAN_LOAD_LOCAL_TEXTURES) return;
   textureLoader.load(
     url,
     (tex) => {
@@ -906,12 +492,21 @@ function tryLoadTexture(url, material) {
   );
 }
 
-// Try a real sun texture too; canvas texture remains as fallback
-textureLoader.load(textureFiles.Sun, (tex) => {
-  tex.colorSpace = THREE.SRGBColorSpace;
-  sunMaterial.map = tex;
-  sunMaterial.needsUpdate = true;
-}, undefined, () => { /* keep canvas sun */ });
+if (CAN_LOAD_LOCAL_TEXTURES) {
+  textureLoader.load(textureFiles.Sun, (tex) => {
+    tex.colorSpace = THREE.SRGBColorSpace;
+    sunMaterial.map = tex;
+    sunMaterial.needsUpdate = true;
+  }, undefined, () => { /* keep canvas sun */ });
+} else {
+  const warn = document.createElement('div');
+  warn.id = 'file-warning';
+  warn.innerHTML =
+    'Opened via <code>file://</code> — planet textures are disabled (browser CORS). ' +
+    'Run <code>serve.bat</code> or <code>python -m http.server 8080</code>, then open ' +
+    '<a href="http://localhost:8080/index.html">http://localhost:8080/index.html</a>';
+  document.body.appendChild(warn);
+}
 
 // Planets
 const planets = [];          // { data, group, mesh }
@@ -1328,6 +923,3 @@ window.addEventListener('resize', () => {
 });
 
 animate();
-</script>
-</body>
-</html>
